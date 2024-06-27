@@ -25,17 +25,18 @@ def get_reference_function(sigma_px=30, reflen=300, window=None):
     ref = normstep(ref)
     return ref
 
-def find_signal(tt_sig, dpx_poly=50, roi=[None,None]):
+def find_signal(tt_sig, ref, roi=[None, None], dpx_poly = None):
     """finding signal ref in d.
     ref is expected to be properly normalized
     return position is corrected to center location of the reference signal (as found in signal d)
     """
     # need to invert both to get correct direction
+
     dark = np.nanmean(buffer, axis=0)
     ratio = (tt_sig/dark)
-    ref = get_reference_function(window=None) 
+
     x0 = (len(ref) + 1) // 2
-    c = np.correlate(ratio[slice(*roi)], ref, "valid")
+    c = np.correlate(ratio[roi[0]:roi[1]], ref, "valid")
 
     if roi[0]:
         x0 += np.min(roi)
@@ -50,7 +51,7 @@ def get_max(c, dpx_poly=None, offset=0):
     if dpx_poly:
         poly = np.polyfit(np.arange(-dpx_poly//2,dpx_poly//2),c[im-dpx_poly//2:im+dpx_poly//2], 5)
         root = np.roots(np.polyder(poly,1))
-        im = np.real(root[np.argmin(np.abs(root))])
+        im+= np.real(root[np.argmin(np.abs(root))])
         
     return im + offset, mx
 
@@ -68,12 +69,19 @@ def process(data, pid, timestanp, params):
     c = None
     p_calib = None
     d = None
+
+    roi = params["roi"]
+    dpx_poly = params["dpx_poly"]
+    sigma_px = params["sigma_px"]
+    reflen = params["reflen"]
+    window = params["window"]
     
     if is_delayed:
         buffer.append(tt_sig)
     else:
         if len(buffer) > params["buffer_length"]-1:
-            p, mx, c, ratio, dark = find_signal(tt_sig, roi=params["roi"])
+            ref = get_reference_function(sigma_px=sigma_px, reflen=reflen, window=window) 
+            p, mx, c, ratio, dark = find_signal(tt_sig, ref, roi=roi, dpx_poly=dpx_poly)
             p_calib = np.polyval(params["calibration"], p)*1e15
     edge_results = {"TT_KB:edge_pos": p, "TT_KB:edge_pos_fs": p_calib, "TT_KB:ampl": mx}
 
@@ -89,6 +97,7 @@ def process(data, pid, timestanp, params):
         "SAROP21-ATT01:raw_wf_savgol": tt_sig,
         })
     return edge_results
+
 
 
 
