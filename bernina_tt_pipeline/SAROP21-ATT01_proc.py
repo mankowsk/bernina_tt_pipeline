@@ -1,4 +1,3 @@
-from cam_server.pipeline.data_processing import functions, processor
 from collections import deque
 import numpy as np
 from scipy.signal.windows import hann
@@ -59,46 +58,47 @@ def process(data, pid, timestanp, params):
     if not initialized:
         initialize(params)
     
-    tt_sig = data[params["tt_sig"]][::-1]
-    events = data[params["events"]]
-    #is_laser_dark = events[[params["is_laser_dark"]]]
-    #is_fel_dark = events[[params["event_code_xfel_dark"]]]
-    is_delayed = events[params["event_code_laser_delayed"]]
-    p = None 
-    mx = None
-    c = None
-    p_calib = None
-    d = None
-
+    ## initialize all values sent to BS stream to None
+    edge_pos = xcorr_ampl = xcorr = arrival_time = ratio = tt_sig = dark = None
+    
+    ## params used for evaluation    
     roi = params["roi"]
     dpx_poly = params["dpx_poly"]
     sigma_px = params["sigma_px"]
     reflen = params["reflen"]
     window = params["window"]
     
-    if is_delayed:
-        buffer.append(tt_sig)
-    else:
+    ## get data and events for sorting
+    tt_sig = data[params["tt_sig"]][::-1]
+    events = data[params["events"]]
+    is_laser_dark = params["is_laser_dark"]
+    is_fel_dark = params["is_fel_dark"]
+    if is_fel_dark:
+        is_fel_dark = events[[params["event_code_fel"]]]
+    is_delayed = events[params["event_code_laser"]]
+
+    ## analyze
+    if (~is_delayed & ~is_fel_dark):
         if len(buffer) > params["buffer_length"]-1:
             ref = get_reference_function(sigma_px=sigma_px, reflen=reflen, window=window) 
-            p, mx, c, ratio, dark = find_signal(tt_sig, ref, roi=roi, dpx_poly=dpx_poly)
-            p_calib = np.polyval(params["calibration"], p)*1e15
-    edge_results = {"TT_KB:edge_pos": p, "TT_KB:edge_pos_fs": p_calib, "TT_KB:ampl": mx}
+            edge_pos, xcorr_ampl, xcorr, ratio, dark = find_signal(tt_sig, ref, roi=roi, dpx_poly=dpx_poly)
+            arrival_time = np.polyval(params["calibration"], edge_pos)*1e15
+
+    ## or add to dark reference
+    elif not (is_delayed & ~is_laser_dark):
+        buffer.append(tt_sig)
 
     # To populate Chris panel
     edge_results.update({
-        "SAROP21-ATT01:edge_pos": p,
-        "SAROP21-ATT01:arrival_time": p_calib,
-        "SAROP21-ATT01:xcorr": c,
-        "SAROP21-ATT01:xcorr_ampl": mx,
+        "SAROP21-ATT01:edge_pos": edge_pos,
+        "SAROP21-ATT01:arrival_time": arrival_time,
+        "SAROP21-ATT01:xcorr": xcorr,
+        "SAROP21-ATT01:xcorr_ampl": xcorr_ampl,
         "SAROP21-ATT01:signal": ratio,
         "SAROP21-ATT01:avg_dark_wf": dark,
         "SAROP21-ATT01:raw_wf": tt_sig,
         "SAROP21-ATT01:raw_wf_savgol": tt_sig,
         })
     return edge_results
-
-
-
 
 
